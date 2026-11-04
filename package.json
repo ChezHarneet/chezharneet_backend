@@ -1,0 +1,52 @@
+{
+  "name": "tcf-platform-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "lint": "eslint src --ext .ts",
+    "test": "node --import tsx --test src/admin/*.spec.ts src/auth/*.spec.ts src/common/*.spec.ts",
+    "prisma:seed": "prisma db seed",
+    "admin:provision": "tsx scripts/provision-admin.ts",
+    "content:import:a88": "node --env-file=.env --import tsx scripts/import-a88-content.ts",
+    "content:migrate:speaking": "node --env-file=.env --import tsx scripts/migrate-speaking-content.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.0",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/multipart": "^9.4.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-fastify": "^11.0.0",
+    "@nestjs/throttler": "^6.4.0",
+    "@prisma/client": "^6.0.0",
+    "argon2": "^0.41.1",
+    "bullmq": "^5.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "ioredis": "^5.4.0",
+    "nodemailer": "^7.0.0",
+    "pdf-parse": "^1.1.4",
+    "pino": "^9.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.1",
+    "prisma": "^6.19.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

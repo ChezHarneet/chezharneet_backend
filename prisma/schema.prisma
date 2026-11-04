@@ -1,0 +1,570 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum ContentStatus {
+  DRAFT
+  REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum TaskType {
+  TASK1
+  TASK2
+  TASK3
+}
+
+enum CourseSkill {
+  SPEAKING
+  LISTENING
+  WRITING
+  READING
+}
+
+enum TaskFormat {
+  SPEAKING_INTERVIEW
+  SPEAKING_INTERACTION
+  SPEAKING_VIEWPOINT
+  LISTENING_MESSAGES
+  LISTENING_CONVERSATIONS
+  LISTENING_INTERVIEWS
+  WRITING_MESSAGE
+  WRITING_ARTICLE
+  WRITING_OPINION
+  READING_TEXTS
+  READING_DOCUMENTS
+  READING_OPINIONS
+}
+
+enum PracticeMode {
+  PRACTICE
+  SIMULATION
+  RECENT_SUBJECT
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+  REVOKED
+}
+
+enum BillingType {
+  ONE_TIME
+  RECURRING
+}
+
+enum NotificationChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+enum OtpPurpose {
+  SIGNUP
+  LOGIN
+  RESET_PASSWORD
+}
+
+model User {
+  id               String            @id @default(cuid())
+  email            String            @unique
+  phone            String?
+  passwordHash     String?
+  firstName        String?
+  lastName         String?
+  role             Role              @default(USER)
+  emailVerifiedAt  DateTime?
+  phoneVerifiedAt  DateTime?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  sessions         Session[]
+  otpCodes         OtpCode[]
+  orders           Order[]
+  enrollments      Enrollment[]
+  notificationLogs NotificationLog[]
+  progress         Progress[]
+  subscriptions    Subscription[]
+
+  @@index([phone])
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model OtpCode {
+  id         String     @id @default(cuid())
+  userId     String?
+  email      String?
+  phone      String?
+  purpose    OtpPurpose
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int        @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime   @default(now())
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email, purpose, expiresAt])
+  @@index([phone, purpose, expiresAt])
+}
+
+model Course {
+  id          String         @id @default(cuid())
+  slug        String         @unique
+  title       String
+  description String?
+  status      ContentStatus  @default(DRAFT)
+  priceMinor  Int            @default(0)
+  currency    String         @default("INR")
+  isFree      Boolean        @default(true)
+  publishedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  modules     CourseModule[]
+  orders      Order[]
+  enrollments Enrollment[]
+
+  @@index([status, publishedAt])
+}
+
+model CourseModule {
+  id              String        @id @default(cuid())
+  courseId        String
+  slug            String
+  title           String
+  description     String?
+  skill           CourseSkill
+  examLabel       String?
+  durationMinutes Int?
+  questionCount   Int?
+  sortOrder       Int           @default(0)
+  status          ContentStatus @default(DRAFT)
+  course          Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  themes          Theme[]
+  tasks           Task[]
+  practiceSets    PracticeSet[]
+
+  @@unique([courseId, slug])
+  @@unique([courseId, skill])
+  @@index([courseId, sortOrder])
+}
+
+model Task {
+  id                String        @id @default(cuid())
+  moduleId          String
+  type              TaskType
+  format            TaskFormat
+  title             String
+  description       String?
+  instructions      String?
+  durationMinutes   Int?
+  questionCount     Int?
+  introVideoMediaId String?
+  sortOrder         Int           @default(0)
+  status            ContentStatus @default(DRAFT)
+  module            CourseModule  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  themes            Theme[]
+  essays            Essay[]
+  practiceSets      PracticeSet[]
+
+  @@unique([moduleId, type])
+  @@index([moduleId, sortOrder])
+}
+
+model PracticeSet {
+  id              String             @id @default(cuid())
+  moduleId        String
+  taskId          String?
+  slug            String
+  title           String
+  description     String?
+  mode            PracticeMode       @default(PRACTICE)
+  durationMinutes Int?
+  questionCount   Int?
+  status          ContentStatus      @default(DRAFT)
+  sortOrder       Int                @default(0)
+  publishedAt     DateTime?
+  module          CourseModule       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  task            Task?              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  questions       PracticeQuestion[]
+
+  @@unique([moduleId, slug])
+  @@index([taskId, sortOrder])
+  @@index([status, publishedAt])
+}
+
+model PracticeQuestion {
+  id            String      @id @default(cuid())
+  practiceSetId String
+  prompt        String
+  options       Json?
+  answer        String?
+  explanation   String?
+  audioMediaId  String?
+  sortOrder     Int         @default(0)
+  practiceSet   PracticeSet @relation(fields: [practiceSetId], references: [id], onDelete: Cascade)
+
+  @@index([practiceSetId, sortOrder])
+}
+
+model Theme {
+  id          String        @id @default(cuid())
+  moduleId    String
+  taskId      String?
+  slug        String
+  name        String
+  description String?
+  sortOrder   Int           @default(0)
+  status      ContentStatus @default(DRAFT)
+  module      CourseModule  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  task        Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  topics      Topic[]
+
+  @@unique([moduleId, slug])
+  @@index([taskId, sortOrder])
+}
+
+model Topic {
+  id               String        @id @default(cuid())
+  themeId          String
+  slug             String
+  title            String
+  situation        String?
+  question         String?
+  modelAnswer      String?
+  extraInformation String?
+  conclusion       String?
+  status           ContentStatus @default(DRAFT)
+  sortOrder        Int           @default(0)
+  publishedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  theme            Theme         @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  vocabulary       Vocabulary[]
+  grammar          GrammarNote[]
+  criteria         ExamCriteria?
+  media            Media[]
+  progress         Progress[]
+
+  @@unique([themeId, slug])
+  @@index([status, publishedAt])
+}
+
+model Vocabulary {
+  id        String  @id @default(cuid())
+  topicId   String
+  term      String
+  meaning   String?
+  example   String?
+  sortOrder Int     @default(0)
+  topic     Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId, sortOrder])
+}
+
+model GrammarNote {
+  id          String  @id @default(cuid())
+  topicId     String
+  rule        String
+  explanation String?
+  example     String?
+  sortOrder   Int     @default(0)
+  topic       Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId, sortOrder])
+}
+
+model ExamCriteria {
+  id               String  @id @default(cuid())
+  topicId          String  @unique
+  lexicalResources String?
+  grammar          String?
+  coherence        String?
+  taskFulfillment  String?
+  relevance        String?
+  topic            Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+}
+
+model Essay {
+  id               String        @id @default(cuid())
+  taskId           String
+  slug             String
+  title            String
+  category         String?
+  sourceFingerprint String?       @unique
+  prompt           String?
+  content          String?
+  summary          String?
+  extraInformation String?
+  sortOrder        Int           @default(0)
+  status           ContentStatus @default(DRAFT)
+  publishedAt      DateTime?
+  task             Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  media            Media[]
+  versions         EssayVersion[]
+  vocabulary       EssayVocabulary[]
+  grammarNotes     EssayGrammarNote[]
+
+  @@unique([taskId, slug])
+  @@index([status, publishedAt])
+}
+
+model EssayVersion {
+  id          String         @id @default(cuid())
+  essayId     String
+  versionLabel String
+  sortOrder   Int            @default(0)
+  status      ContentStatus  @default(DRAFT)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  essay       Essay          @relation(fields: [essayId], references: [id], onDelete: Restrict)
+  sections    EssaySection[]
+
+  @@unique([essayId, versionLabel])
+  @@index([essayId, status, sortOrder])
+}
+
+model EssaySection {
+  id          String       @id @default(cuid())
+  versionId   String
+  sectionType String
+  heading     String?
+  content     String
+  sortOrder   Int          @default(0)
+  version     EssayVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+
+  @@index([versionId, sortOrder])
+}
+
+model EssayVocabulary {
+  id             String @id @default(cuid())
+  essayId        String
+  frenchTerm     String
+  englishMeaning String?
+  example        String?
+  sortOrder      Int    @default(0)
+  essay          Essay  @relation(fields: [essayId], references: [id], onDelete: Restrict)
+
+  @@index([essayId, sortOrder])
+}
+
+model EssayGrammarNote {
+  id          String @id @default(cuid())
+  essayId     String
+  structure   String
+  example     String?
+  purpose     String?
+  explanation String?
+  sortOrder   Int    @default(0)
+  essay       Essay  @relation(fields: [essayId], references: [id], onDelete: Restrict)
+
+  @@index([essayId, sortOrder])
+}
+
+model Media {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  type            String
+  mimeType        String
+  sizeBytes       BigInt?
+  durationSeconds Int?
+  checksum        String?
+  isProtected     Boolean  @default(false)
+  topicId         String?
+  essayId         String?
+  createdAt       DateTime @default(now())
+  topic           Topic?   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  essay           Essay?   @relation(fields: [essayId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+  @@index([essayId])
+}
+
+model Plan {
+  id              String         @id @default(cuid())
+  slug            String         @unique
+  name            String
+  description     String?
+  priceMinor      Int
+  currency        String         @default("INR")
+  durationDays    Int?
+  billingType     BillingType    @default(ONE_TIME)
+  features        Json
+  providerPriceId String?
+  isActive        Boolean        @default(true)
+  isPublic        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  subscriptions   Subscription[]
+
+  @@index([isActive, isPublic])
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  userId                 String
+  planId                 String
+  provider               String?
+  providerCustomerId     String?
+  providerSubscriptionId String?
+  status                 SubscriptionStatus @default(PENDING)
+  startsAt               DateTime?
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean            @default(false)
+  cancelledAt            DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  plan                   Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([provider, providerSubscriptionId])
+  @@index([userId, status, currentPeriodEnd])
+  @@index([planId, status])
+}
+
+model PaymentEvent {
+  id              String    @id @default(cuid())
+  provider        String
+  providerEventId String
+  eventType       String
+  orderId         String?
+  payload         Json?
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  order           Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, providerEventId])
+  @@index([orderId, createdAt])
+  @@index([eventType, processedAt])
+}
+
+model ContentAuditLog {
+  id         String   @id @default(cuid())
+  resource   String
+  resourceId String
+  action     String
+  actorId    String
+  snapshot   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([resource, resourceId, createdAt])
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+}
+
+model Order {
+  id              String         @id @default(cuid())
+  userId          String
+  courseId        String
+  provider        String?
+  providerOrderId String?
+  amountMinor     Int
+  currency        String
+  status          OrderStatus    @default(PENDING)
+  paidAt          DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  user            User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  course          Course         @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  enrollment      Enrollment?
+  paymentEvents   PaymentEvent[]
+
+  @@unique([provider, providerOrderId])
+  @@index([userId, createdAt])
+  @@index([courseId, status])
+}
+
+model Enrollment {
+  id        String           @id @default(cuid())
+  userId    String
+  courseId  String
+  orderId   String?          @unique
+  status    EnrollmentStatus @default(ACTIVE)
+  startsAt  DateTime         @default(now())
+  expiresAt DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  order     Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, courseId])
+  @@index([courseId, status])
+}
+
+model Progress {
+  id           String    @id @default(cuid())
+  userId       String
+  topicId      String
+  completed    Boolean   @default(false)
+  lastViewedAt DateTime  @default(now())
+  completedAt  DateTime?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic        Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+  @@index([userId, lastViewedAt])
+}
+
+model NotificationLog {
+  id                String              @id @default(cuid())
+  userId            String?
+  channel           NotificationChannel
+  event             String
+  destination       String
+  providerMessageId String?
+  status            NotificationStatus  @default(QUEUED)
+  payload           Json?
+  error             String?
+  createdAt         DateTime            @default(now())
+  sentAt            DateTime?
+  user              User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([channel, event, status])
+}
