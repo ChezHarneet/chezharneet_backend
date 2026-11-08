@@ -5,15 +5,18 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
-    "dev": "tsx watch src/main.ts",
+    "start:worker": "node dist/notifications/worker.main.js",
+    "dev": "NODE_ENV=development tsx watch src/main.ts",
+    "dev:worker": "NODE_ENV=development node --env-file=.env --import tsx --watch src/notifications/worker.main.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "lint": "eslint src --ext .ts",
-    "test": "node --import tsx --test src/admin/*.spec.ts src/auth/*.spec.ts src/common/*.spec.ts",
+    "test": "node --import tsx --test src/admin/*.spec.ts src/auth/*.spec.ts src/notifications/*.spec.ts",
     "prisma:seed": "prisma db seed",
     "admin:provision": "tsx scripts/provision-admin.ts",
     "content:import:a88": "node --env-file=.env --import tsx scripts/import-a88-content.ts",
+    "content:import:task3-docs": "node --env-file=.env --import tsx scripts/import-task3-google-docs.ts",
     "content:migrate:speaking": "node --env-file=.env --import tsx scripts/migrate-speaking-content.ts"
   },
   "dependencies": {

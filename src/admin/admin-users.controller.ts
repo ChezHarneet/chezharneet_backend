@@ -5,17 +5,25 @@ import {
   Inject,
   Param,
   Patch,
+  Post,
   UseGuards,
 } from '@nestjs/common';
-import { IsEnum } from 'class-validator';
+import { IsEmail, IsEnum, IsString, Length, Matches } from 'class-validator';
 import { Role } from '@prisma/client';
 import { AuthGuard } from '../auth/auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { AdminUsersService } from './admin-users.service';
 
 class UpdateUserRoleDto {
   @IsEnum(Role) role!: Role;
+}
+
+class InviteAdminDto {
+  @IsEmail() email!: string;
+  @IsString() @Length(1, 80) @Matches(/\S/) firstName!: string;
+  @IsString() @Length(1, 80) @Matches(/\S/) lastName!: string;
 }
 
 @Controller('admin/users')
@@ -27,6 +35,15 @@ export class AdminUsersController {
   @Get()
   list() {
     return this.users.list();
+  }
+
+  @Post('invitations')
+  @Roles(Role.SUPER_ADMIN)
+  invite(
+    @CurrentUser() user: { sub: string },
+    @Body() body: InviteAdminDto,
+  ) {
+    return this.users.inviteAdmin(body.email, body.firstName, body.lastName, user.sub);
   }
 
   @Patch(':id/role')

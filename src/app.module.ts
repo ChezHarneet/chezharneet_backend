@@ -12,7 +12,6 @@ import { CourseController } from "./courses/course.controller";
 import { CourseService } from "./courses/course.service";
 import { OrderController } from "./orders/order.controller";
 import { OrderService } from "./orders/order.service";
-import { WorkerBootstrap } from "./notifications/worker.bootstrap";
 import { ProgressController } from "./progress/progress.controller";
 import { ProgressService } from "./progress/progress.service";
 import { AuthGuard } from "./auth/auth.guard";
@@ -26,7 +25,7 @@ import { AdminUsersService } from "./admin/admin-users.service";
 import { SpeakingCmsController } from "./admin/speaking-cms.controller";
 import { SpeakingCmsService } from "./admin/speaking-cms.service";
 
-@Module({
+@Module({ 
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     JwtModule.registerAsync({
@@ -59,7 +58,6 @@ import { SpeakingCmsService } from "./admin/speaking-cms.service";
     NotificationService,
     CourseService,
     OrderService,
-    WorkerBootstrap,
     ProgressService,
     AuthGuard,
     RolesGuard,

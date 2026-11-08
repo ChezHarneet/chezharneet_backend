@@ -6,7 +6,8 @@ import {
 } from "@nestjs/platform-fastify";
 import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
-import multipart from "@fastify/multipart";
+import multipart from "@fastify/multipart"; 
+
 import { ValidationPipe } from "@nestjs/common";
 import { AppModule } from "./app.module";
 

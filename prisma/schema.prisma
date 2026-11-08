@@ -120,6 +120,7 @@ model User {
   notificationLogs NotificationLog[]
   progress         Progress[]
   subscriptions    Subscription[]
+  adminInvites     AdminInvite[]      @relation("AdminInviteCreator")
 
   @@index([phone])
 }
@@ -134,6 +135,23 @@ model Session {
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+  @@index([refreshTokenHash, revokedAt, expiresAt])
+}
+
+model AdminInvite {
+  id          String    @id @default(cuid())
+  email       String
+  firstName   String
+  lastName    String
+  tokenHash   String    @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  invitedBy   User      @relation("AdminInviteCreator", fields: [invitedById], references: [id], onDelete: Restrict)
+
+  @@index([email, acceptedAt, expiresAt])
+  @@index([invitedById, createdAt])
 }
 
 model OtpCode {
