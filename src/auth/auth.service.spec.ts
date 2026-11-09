@@ -103,11 +103,16 @@ test("requested OTP expires in ten minutes and starts a 60-second resend cooldow
     otpCode: {
       create: async ({ data }: any) => {
         createdOtp = data;
+        return { id: "otp-1" };
       },
+      update: async () => undefined,
     },
   };
-  const redis = { client: { exists: async () => 0, set: async () => "OK" } };
-  const notifications = { emailOtp: async () => undefined };
+  const redis = {
+    client: { set: async () => "OK" },
+    deleteIfValueMatches: async () => undefined,
+  };
+  const notifications = { sendOtpEmail: async () => ({ id: "otp-otp-1" }) };
   const auth = new AuthService(
     db as any,
     redis as any,
@@ -136,10 +141,78 @@ test("requested OTP expires in ten minutes and starts a 60-second resend cooldow
   assert.equal(result.resendAfterSeconds, 60);
   assert.ok(result.devCode);
   assert.match(result.devCode, /^\d{6}$/);
-  assert.equal(
-    loggedMessages[0],
-    `Development OTP for person@example.com (LOGIN): ${result.devCode}`,
+  assert.equal(loggedMessages.length, 1);
+  assert.match(loggedMessages[0], /"event":"otp\.email\.accepted"/);
+  assert.doesNotMatch(loggedMessages[0], new RegExp(result.devCode));
+  assert.doesNotMatch(loggedMessages[0], /person@example\.com/);
+});
+
+test("concurrent OTP requests reuse the accepted request instead of queuing another code", async () => {
+  let queuedEmails = 0;
+  const expiresAt = new Date(Date.now() + 500_000);
+  const auth = new AuthService(
+    {
+      otpCode: { findFirst: async () => ({ id: "otp-1", expiresAt }) },
+      notificationLog: { findUnique: async () => ({ status: "SENT" }) },
+    } as any,
+    {
+      client: {
+        set: async () => null,
+        get: async () => "sent:otp-1",
+        ttl: async () => 42,
+      },
+    } as any,
+    {} as any,
+    { sendOtpEmail: async () => { queuedEmails += 1; } } as any,
   );
+
+  const result = await auth.requestEmailOtp("person@example.com", "LOGIN");
+  assert.deepEqual(result, {
+    queued: false,
+    sent: true,
+    retryAfterSeconds: 42,
+    expiresAt: expiresAt.toISOString(),
+    resendAfterSeconds: 42,
+  });
+  assert.equal(queuedEmails, 0);
+});
+
+test("failed email enqueue consumes its OTP and releases only its cooldown reservation", async () => {
+  let consumedOtp = false;
+  let releasedKey = "";
+  let releasedValue = "";
+  const previousNodeEnv = process.env.NODE_ENV;
+  delete process.env.NODE_ENV;
+  const auth = new AuthService(
+    {
+      user: { findUnique: async () => null },
+      otpCode: {
+        create: async () => ({ id: "otp-failed" }),
+        update: async ({ data }: any) => { consumedOtp = data.consumedAt instanceof Date; },
+      },
+    } as any,
+    {
+      client: { set: async () => "OK" },
+      deleteIfValueMatches: async (key: string, value: string) => {
+        releasedKey = key;
+        releasedValue = value;
+      },
+    } as any,
+    {} as any,
+    { sendOtpEmail: async () => { throw new Error("SMTP unavailable"); } } as any,
+  );
+  try {
+    await assert.rejects(
+      auth.requestEmailOtp("person@example.com", "LOGIN"),
+      /SMTP unavailable/,
+    );
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
+  assert.equal(consumedOtp, true);
+  assert.match(releasedKey, /^otp:cooldown:LOGIN:/);
+  assert.match(releasedValue, /^pending:/);
 });
 
 test("OTP login token is accepted by the authenticated profile guard", async () => {
@@ -217,4 +290,57 @@ test("refresh rejects revoked or unknown sessions", async () => {
     session: { findFirst: async () => null },
   } as any, {} as any, {} as any, {} as any);
   await assert.rejects(auth.refreshSession("invalid"), UnauthorizedException);
+});
+
+test("concurrent refresh attempts rotate a session only once", async () => {
+  let currentHash = createHash("sha256").update("shared-refresh").digest("hex");
+  const auth = new AuthService(
+    {
+      session: {
+        findFirst: async () => ({ id: "session-1", userId: "u1" }),
+        updateMany: async ({ where, data }: any) => {
+          if (where.refreshTokenHash !== currentHash) return { count: 0 };
+          currentHash = data.refreshTokenHash;
+          return { count: 1 };
+        },
+      },
+      user: {
+        findUnique: async () => ({
+          id: "u1",
+          email: "person@example.com",
+          role: "USER",
+          isActive: true,
+        }),
+      },
+    } as any,
+    {} as any,
+    { signAsync: async () => "new-access-token" } as any,
+    {} as any,
+  );
+  const results = await Promise.allSettled([
+    auth.refreshSession("shared-refresh"),
+    auth.refreshSession("shared-refresh"),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+});
+
+test("logout revokes the stored refresh-token hash without storing the raw token", async () => {
+  let update: any;
+  const auth = new AuthService(
+    {
+      session: {
+        updateMany: async (args: any) => { update = args; },
+      },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+  await auth.revokeSession("refresh-to-revoke");
+  assert.equal(
+    update.where.refreshTokenHash,
+    createHash("sha256").update("refresh-to-revoke").digest("hex"),
+  );
+  assert.equal(JSON.stringify(update).includes("refresh-to-revoke"), false);
 });

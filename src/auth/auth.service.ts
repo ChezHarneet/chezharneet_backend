@@ -8,6 +8,7 @@ import {
   Inject,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { PrismaService } from "../common/prisma.service";
 import { RedisService } from "../common/redis.service";
@@ -18,7 +19,6 @@ import {
   createHmac,
   timingSafeEqual,
 } from "crypto";
-import argon2 from "argon2";
 import { JwtService, JwtSignOptions } from "@nestjs/jwt";
 import { NotificationService } from "../notifications/notification.service";
 import { isEmail } from "class-validator";
@@ -58,56 +58,115 @@ export class AuthService {
   async requestEmailOtp(
     email: string,
     purpose: "SIGNUP" | "LOGIN" | "RESET_PASSWORD",
+    requestId?: string,
   ) {
     this.validateOtpInput(email, purpose);
     if (purpose === "RESET_PASSWORD")
       throw new NotImplementedException("Password reset is not available yet");
     const normalizedEmail = email.trim().toLowerCase();
     const key = `otp:cooldown:${purpose}:${normalizedEmail}`;
-    if (await this.redis.client.exists(key)) {
-      const activeOtp = await this.db.otpCode.findFirst({
-        where: {
-          email: normalizedEmail,
-          purpose,
-          consumedAt: null,
-          expiresAt: { gt: new Date() },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { expiresAt: true },
-      });
-      const retryAfterSeconds = Math.max(1, await this.redis.client.ttl(key));
-      return {
-        queued: true,
-        retryAfterSeconds,
-        expiresAt: activeOtp?.expiresAt.toISOString(),
-        resendAfterSeconds: retryAfterSeconds,
-      };
+    const reservation = `pending:${randomBytes(16).toString("hex")}`;
+    const acquired = await this.redis.client.set(key, reservation, "EX", 60, "NX");
+    if (acquired !== "OK") {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const state = await this.redis.client.get(key);
+        if (state?.startsWith("sent:") || state === "1") {
+          const activeOtp = await this.db.otpCode.findFirst({
+            where: {
+              email: normalizedEmail,
+              purpose,
+              consumedAt: null,
+              expiresAt: { gt: new Date() },
+            },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, expiresAt: true },
+          });
+          const delivery = activeOtp
+            ? await this.db.notificationLog.findUnique({
+                where: { id: `otp-${activeOtp.id}` },
+                select: { status: true },
+              })
+            : null;
+          if (delivery?.status !== "SENT") {
+            throw new ServiceUnavailableException("Verification email delivery could not be confirmed; please retry shortly");
+          }
+          const retryAfterSeconds = Math.max(1, await this.redis.client.ttl(key));
+          return {
+            queued: false,
+            sent: true,
+            retryAfterSeconds,
+            expiresAt: activeOtp?.expiresAt.toISOString(),
+            resendAfterSeconds: retryAfterSeconds,
+          };
+        }
+        if (!state) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new ServiceUnavailableException("An OTP request is already being processed; retry shortly");
     }
     const code = String(randomInt(100000, 1000000));
     const hash = this.hashCode(code);
     const expires = new Date(Date.now() + 600 * 1000);
-    const user = await this.db.user.findUnique({
-      where: { email: normalizedEmail },
-    });
-    if (purpose === "SIGNUP" && user)
-      throw new ConflictException("Email already registered");
-    await this.db.otpCode.create({
-      data: {
-        userId: user?.id,
-        email: normalizedEmail,
+    const deliveryStartedAt = Date.now();
+    let otpId: string | undefined;
+    let emailAccepted = false;
+    try {
+      const user = await this.db.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+      if (purpose === "SIGNUP" && user)
+        throw new ConflictException("Email already registered");
+      const otpRecord = await this.db.otpCode.create({
+        data: {
+          userId: user?.id,
+          email: normalizedEmail,
+          purpose,
+          codeHash: hash,
+          expiresAt: expires,
+        },
+      });
+      otpId = otpRecord.id;
+      const delivery = await this.notifications.sendOtpEmail(normalizedEmail, code, otpRecord.id);
+      emailAccepted = true;
+      try {
+        await this.redis.client.set(key, `sent:${otpRecord.id}`, "EX", 60);
+      } catch {
+        // The original reservation remains as a cooldown until its initial TTL expires.
+      }
+      this.logger.log(JSON.stringify({
+        event: "otp.email.accepted",
+        requestId,
         purpose,
-        codeHash: hash,
-        expiresAt: expires,
-      },
-    });
-    await this.redis.client.set(key, "1", "EX", 60);
-    await this.notifications.emailOtp(normalizedEmail, code);
-    if (process.env.NODE_ENV === "development")
-      this.logger.log(
-        `Development OTP for ${normalizedEmail} (${purpose}): ${code}`,
+        notificationId: delivery.id,
+        durationMs: Date.now() - deliveryStartedAt,
+      }));
+    } catch (error) {
+      emailAccepted = Boolean(
+        error && typeof error === "object" && "emailAccepted" in error && error.emailAccepted === true,
       );
+      if (otpId && !emailAccepted) {
+        await this.db.otpCode.update({
+          where: { id: otpId },
+          data: { consumedAt: new Date() },
+        });
+      }
+      if (!emailAccepted) {
+        await this.redis.deleteIfValueMatches(key, reservation);
+      } else {
+        await this.redis.client.set(key, `sent:${otpId}`, "EX", 60).catch(() => undefined);
+      }
+      this.logger.error(JSON.stringify({
+        event: "otp.email.delivery_failed",
+        requestId,
+        purpose,
+        durationMs: Date.now() - deliveryStartedAt,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      }));
+      throw error;
+    }
     return {
-      queued: true,
+      queued: false,
+      sent: true,
       expiresAt: expires.toISOString(),
       resendAfterSeconds: 60,
       devCode: process.env.NODE_ENV === "development" ? code : undefined,

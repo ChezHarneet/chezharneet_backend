@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "start:worker": "node dist/notifications/worker.main.js",
     "dev": "NODE_ENV=development tsx watch src/main.ts",
@@ -29,13 +29,12 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-fastify": "^11.0.0",
     "@nestjs/throttler": "^6.4.0",
-    "@prisma/client": "^6.0.0",
-    "argon2": "^0.41.1",
+    "@prisma/client": "^6.19.3",
     "bullmq": "^5.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "ioredis": "^5.4.0",
-    "nodemailer": "^7.0.0",
+    "nodemailer": "^10.4.0",
     "pdf-parse": "^1.1.4",
     "pino": "^9.0.0",
     "reflect-metadata": "^0.2.2",
@@ -45,11 +44,18 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^8.0.1",
+    "eslint": "^9.39.5",
     "prisma": "^6.19.3",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.72.1"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
+  },
+  "allowScripts": {
+    "@prisma/client": true,
+    "@prisma/engines": true,
+    "prisma": true
   }
 }
