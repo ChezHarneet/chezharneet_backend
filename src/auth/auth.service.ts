@@ -151,7 +151,12 @@ export class AuthService {
         });
       }
       if (!emailAccepted) {
-        await this.redis.deleteIfValueMatches(key, reservation);
+        await this.redis.client.eval(
+          "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+          1,
+          key,
+          reservation,
+        );
       } else {
         await this.redis.client.set(key, `sent:${otpId}`, "EX", 60).catch(() => undefined);
       }
